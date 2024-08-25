@@ -1,0 +1,144 @@
+--------------------------------------------------------------------------------------------------------------------
+Variables:
+---------------------------------------------------------------------------------------------------------------------
+variable "project_id" {
+  type        = string
+  description = "The project ID to host the cluster in (required)"
+}
+
+variable "region" {
+  type        = string
+  description = "The project region"
+}
+
+variable "bucket_access" {
+   description     = ""
+   type            = map(object({
+     bucket_name   = string
+	 bucket_role   = string
+	 users         = list(string)
+   }))
+}
+
+variable "pubsub_topic_access" {
+   description     = ""
+   type            = map(object({
+     topic_name    = string
+	 topic_role    = string
+	 users         = list(string)
+   }))
+}
+
+variable "pubsub_subscription_access" {
+   description     = ""
+   type            = map(object({
+     sub_name    = string
+	 sub_role    = string
+	 users         = list(string)
+   }))
+   default = {}
+}
+-------------------------------------------------------------  END ----------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+main.tf
+-----------------------------------------------------------------------------------------------------------------------
+project_id                    = "jaya-gcp-1"
+region                        = "us-east4"
+
+bucket_access  =   {
+   bucket1  = {
+       bucket_name            = "my-test-bucket-jaya-gcp-1"
+	   bucket_role            = "roles/storage.objectViewer"
+       users                  = ["user:atoy1ton@gmail.com",
+                                 "serviceAccount:gcp-iam-sa@jaya-gcp-1.iam.gserviceaccount.com"]
+   },
+   bucket2  = {
+       bucket_name            = "my-test-bucket-jaya-gcp-1"
+	   bucket_role            = "roles/storage.objectUser"
+       users                  = ["user:atoy1ton@gmail.com",
+                                 "serviceAccount:gcp-iam-sa@jaya-gcp-1.iam.gserviceaccount.com"]
+   },
+}
+
+pubsub_topic_access  =   {
+   topic1  = {
+       topic_name            = "my-topic-1"
+	   topic_role            = "roles/pubsub.editor"
+       users                 = ["user:atoy1ton@gmail.com",
+                                "serviceAccount:gcp-iam-sa@jaya-gcp-1.iam.gserviceaccount.com"]
+   },
+}
+
+pubsub_subscription_access  =   {
+#   sub1  = {
+#      sub_name              = "my-topic-1-sub"
+#	   sub_role              = "roles/pubsub.editor"
+#      users                 = ["user:atoy1ton@gmail.com",
+#                               "serviceAccount:gcp-iam-sa@jaya-gcp-1.iam.gserviceaccount.com"]
+#   },
+}   
+-----------------------------------------------------------  END ----------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------
+properties.tf
+--------------------------------------------------------------------------------------------------------------------
+locals {
+   bucket_user_bindings = merge ([for key, binding in var.bucket_access :
+     { for _, user in binding.users : "${key}-${user}" =>
+	   {
+	     binding_key = key
+		 bname       = binding.bucket_name
+		 brole       = binding.bucket_role
+		 user        = user
+	   }
+     }
+  ] ...)
+}
+
+resource "google_storage_bucket_iam_member" "gcp_bucket_access" {
+   for_each                = local.bucket_user_bindings
+   role                    = each.value.brole
+   member                  = each.value.user
+   bucket                  = each.value.bname
+}
+
+locals {
+   pubsub_topic_user_bindings = merge ([for key, binding in var.pubsub_topic_access :
+     { for _, user in binding.users : "${key}-${user}" =>
+	   {
+	     binding_key = key
+		 tname       = binding.topic_name
+		 trole       = binding.topic_role
+		 user        = user
+	   }
+     }
+  ] ...)
+}
+
+resource "google_pubsub_topic_iam_member" "member" {
+   for_each                = local.pubsub_topic_user_bindings
+   role                    = each.value.trole
+   member                  = each.value.user
+   topic                   = each.value.tname
+}
+
+locals {
+   pubsub_sub_user_bindings = merge ([for key, binding in var.pubsub_subscription_access :
+     { for _, user in binding.users : "${key}-${user}" =>
+	   {
+	     binding_key = key
+		 sname       = binding.sub_name
+		 srole       = binding.sub_role
+		 user        = user
+	   }
+     }
+  ] ...)
+}
+
+resource "google_pubsub_subscription_iam_member" "editor" {
+  for_each                = local.pubsub_sub_user_bindings
+  subscription            = each.value.sname
+  role                    = each.value.srole
+  member                  = each.value.user
+}   
+-------------------------------------------------------------------END -------------------------------------------
+
